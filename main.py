@@ -8,21 +8,21 @@ from bs4 import BeautifulSoup
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DATA_FILE = "last_seen.json"
 
-# YouTubeチャンネル一覧
+# 正しいYouTubeチャンネル一覧
 YOUTUBE_CHANNELS = [
     {
         "name": "M!LK Official",
-        "channel_id": "UC_x5XG1OV2P6uZZ5FSM9Ttw",
+        "channel_id": "UCHqQCpqvSOcHQr6Oqa4_5wg", # 正しいM!LK公式ID
         "color": 0xFF0000 # 赤
     },
     {
         "name": "佐野勇斗だぞ",
-        "channel_id": "UCx89B48_6GfM05n6iJ83-6A",
+        "channel_id": "UCKBT9RsmIdJDxoNXUIXvX6A", # 正しい佐野勇斗個人ID
         "color": 0xFF69B4 # ピーチヒップピンク
     },
     {
         "name": "じんだいチャンネル",
-        "channel_id": "UCk8oGFgksVxjh2YiU_D6hFQ",
+        "channel_id": "UCk8oGFgksVxjh2YiU_D6hFQ", # 正しいじんだいチャンネルID
         "color": 0xF5A623 # オレンジ・イエロー系
     }
 ]
@@ -97,22 +97,22 @@ def send_discord(title, text, url, color, bot_name):
     res = requests.post(WEBHOOK_URL, json=payload)
     return res.status_code in [200, 204]
 
-# テスト通知：最新のYouTube動画を確実に1件飛ばす
-def send_youtube_test(last_seen):
-    if not last_seen.get("youtube_test_done"):
-        print("YouTubeテスト送信中...")
-        rss_url = "https://www.youtube.com/feeds/videos.xml?channel_id=UC_x5XG1OV2P6uZZ5FSM9Ttw"
+# テスト通知：M!LK公式の最新動画を届ける
+def send_milk_youtube_test(last_seen):
+    if not last_seen.get("milk_youtube_tested_v2"):
+        print("M!LK YouTubeテスト送信中...")
+        rss_url = "https://www.youtube.com/feeds/videos.xml?channel_id=UCHqQCpqvSOcHQr6Oqa4_5wg"
         feed = feedparser.parse(rss_url)
         if feed.entries:
             latest = feed.entries[0]
             send_discord(
                 title=f"🎬 [動作テスト] {latest.title}",
-                text=f"M!LK公式の最新動画です！新着動画が出るとこのように通知されます。\n{latest.link}",
+                text=f"M!LK公式の最新動画です！通知テストとしてお届けします。\n{latest.link}",
                 url=latest.link,
                 color=0xFF0000,
                 bot_name="M!LK YouTube通知"
             )
-            last_seen["youtube_test_done"] = True
+            last_seen["milk_youtube_tested_v2"] = True
 
 # YouTube巡回
 def check_youtube(last_seen):
@@ -133,7 +133,7 @@ def check_youtube(last_seen):
             continue
 
         if video_id != last_seen.get(key):
-            print(f"[YouTube] 新着: {latest.title}")
+            print(f"[YouTube] 新着 ({yt['name']}): {latest.title}")
             send_discord(
                 title=f"🎬 YouTube新着: {latest.title}",
                 text=f"{yt['name']} に新しい動画が公開されました！\n{latest.link}",
@@ -235,7 +235,7 @@ def check_instagram(last_seen):
 
 def main():
     last_seen = load_last_seen()
-    send_youtube_test(last_seen)  # YouTubeのテスト送信
+    send_milk_youtube_test(last_seen)
     check_youtube(last_seen)
     check_twitter(last_seen)
     check_instagram(last_seen)
