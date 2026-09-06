@@ -1,40 +1,10 @@
-name: Check M!LK Updates
-
-on:
-  schedule:
-    # 20分おきに自動実行
-    - cron: '*/20 * * * *'
-  workflow_dispatch:
-
-jobs:
-  check-updates:
-    runs-on: ubuntu-latest
-    # ↓ここに書き込み権限（contents: write）を明示的に追加しました
-    permissions:
-      contents: write
-
-    steps:
-      - name: リポジトリのコードを取得
-        uses: actions/checkout@v4
-
-      - name: Pythonのセットアップ
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: ライブラリのインストール
-        run: |
-          pip install -r requirements.txt
-
-      - name: スクリプト実行
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          python main.py
-
-      - name: 履歴(last_seen.json)に変更があればコミットして保存
-        run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git add last_seen.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update last_seen.json [skip ci]" && git push)
+{
+  "milk_youtube_tested_v2": true,
+  "youtube:UCHqQCpqvSOcHQr6Oqa4_5wg": "bQBiZ5N-juo",
+  "youtube:UCKBT9RsmIdJDxoNXUIXvX6A": "i9crUhZHnDE",
+  "youtube:UCk8oGFgksVxjh2YiU_D6hFQ": "qyv3FNaW9ck",
+  "twitter:milk_info": "2075492854777184601",
+  "twitter:sanohayatodazo": "1861274842768777278",
+  "twitter:jyu_ta_ro": "2006379851473965534",
+  "twitter:Y_Jinto_1215": "1987721357099213158"
+}
