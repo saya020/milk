@@ -95,26 +95,24 @@ def send_discord(title, text, url, color, bot_name):
         }]
     }
     res = requests.post(WEBHOOK_URL, json=payload)
-    if res.status_code in [200, 204]:
-        print(f"送信成功: {title}")
-        return True
-    else:
-        print(f"送信失敗 (Status {res.status_code}): {res.text}")
-        return False
+    return res.status_code in [200, 204]
 
-# 接続確認用のテスト通知（初回のみ送る）
-def send_initial_test(last_seen):
-    if not last_seen.get("system_initialized"):
-        print("初回テスト通知を送信します...")
-        success = send_discord(
-            title="🎉 M!LK通知Botが正常に接続されました！",
-            text="これより20分おきにYouTube・X・Instagramの最新投稿を自動チェックします。",
-            url="https://sd-milk.com/",
-            color=0x00FF00, # 緑色
-            bot_name="M!LK通知システム"
-        )
-        if success:
-            last_seen["system_initialized"] = True
+# テスト通知：最新のYouTube動画を確実に1件飛ばす
+def send_youtube_test(last_seen):
+    if not last_seen.get("youtube_test_done"):
+        print("YouTubeテスト送信中...")
+        rss_url = "https://www.youtube.com/feeds/videos.xml?channel_id=UC_x5XG1OV2P6uZZ5FSM9Ttw"
+        feed = feedparser.parse(rss_url)
+        if feed.entries:
+            latest = feed.entries[0]
+            send_discord(
+                title=f"🎬 [動作テスト] {latest.title}",
+                text=f"M!LK公式の最新動画です！新着動画が出るとこのように通知されます。\n{latest.link}",
+                url=latest.link,
+                color=0xFF0000,
+                bot_name="M!LK YouTube通知"
+            )
+            last_seen["youtube_test_done"] = True
 
 # YouTube巡回
 def check_youtube(last_seen):
@@ -130,16 +128,7 @@ def check_youtube(last_seen):
         latest = feed.entries[0]
         video_id = latest.yt_videoid
 
-        # 初回はM!LK公式の最新動画を1件テスト送信してみる
         if key not in last_seen:
-            if yt["name"] == "M!LK Official":
-                send_discord(
-                    title=f"🎬 [動作確認] YouTube最新動画: {latest.title}",
-                    text=f"現在公開中の最新動画です！今後は新着動画が出た際に通知されます。\n{latest.link}",
-                    url=latest.link,
-                    color=yt["color"],
-                    bot_name=f"{yt['name']} YouTube通知"
-                )
             last_seen[key] = video_id
             continue
 
@@ -246,7 +235,7 @@ def check_instagram(last_seen):
 
 def main():
     last_seen = load_last_seen()
-    send_initial_test(last_seen)
+    send_youtube_test(last_seen)  # YouTubeのテスト送信
     check_youtube(last_seen)
     check_twitter(last_seen)
     check_instagram(last_seen)
