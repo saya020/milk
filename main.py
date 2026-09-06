@@ -82,8 +82,8 @@ def save_last_seen(data):
 
 def send_discord(title, text, url, color, bot_name):
     if not WEBHOOK_URL:
-        print("WEBHOOK_URLが未設定です。")
-        return
+        print("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
+        return False
     
     payload = {
         "username": bot_name,
@@ -94,7 +94,27 @@ def send_discord(title, text, url, color, bot_name):
             "color": color
         }]
     }
-    requests.post(WEBHOOK_URL, json=payload)
+    res = requests.post(WEBHOOK_URL, json=payload)
+    if res.status_code in [200, 204]:
+        print(f"送信成功: {title}")
+        return True
+    else:
+        print(f"送信失敗 (Status {res.status_code}): {res.text}")
+        return False
+
+# 接続確認用のテスト通知（初回のみ送る）
+def send_initial_test(last_seen):
+    if not last_seen.get("system_initialized"):
+        print("初回テスト通知を送信します...")
+        success = send_discord(
+            title="🎉 M!LK通知Botが正常に接続されました！",
+            text="これより20分おきにYouTube・X・Instagramの最新投稿を自動チェックします。",
+            url="https://sd-milk.com/",
+            color=0x00FF00, # 緑色
+            bot_name="M!LK通知システム"
+        )
+        if success:
+            last_seen["system_initialized"] = True
 
 # YouTube巡回
 def check_youtube(last_seen):
@@ -110,13 +130,21 @@ def check_youtube(last_seen):
         latest = feed.entries[0]
         video_id = latest.yt_videoid
 
-        # 初回実行時は通知せず最新IDを記憶
+        # 初回はM!LK公式の最新動画を1件テスト送信してみる
         if key not in last_seen:
+            if yt["name"] == "M!LK Official":
+                send_discord(
+                    title=f"🎬 [動作確認] YouTube最新動画: {latest.title}",
+                    text=f"現在公開中の最新動画です！今後は新着動画が出た際に通知されます。\n{latest.link}",
+                    url=latest.link,
+                    color=yt["color"],
+                    bot_name=f"{yt['name']} YouTube通知"
+                )
             last_seen[key] = video_id
             continue
 
         if video_id != last_seen.get(key):
-            print(f"[YouTube] 新着 ({yt['name']}): {latest.title}")
+            print(f"[YouTube] 新着: {latest.title}")
             send_discord(
                 title=f"🎬 YouTube新着: {latest.title}",
                 text=f"{yt['name']} に新しい動画が公開されました！\n{latest.link}",
@@ -218,6 +246,7 @@ def check_instagram(last_seen):
 
 def main():
     last_seen = load_last_seen()
+    send_initial_test(last_seen)
     check_youtube(last_seen)
     check_twitter(last_seen)
     check_instagram(last_seen)
