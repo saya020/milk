@@ -1,28 +1,29 @@
 import os
 import json
 import time
+import re
+import urllib.parse
 import requests
 import feedparser
-from bs4 import BeautifulSoup
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DATA_FILE = "last_seen.json"
 
-# 正しいYouTubeチャンネル一覧
+# YouTubeチャンネル一覧
 YOUTUBE_CHANNELS = [
     {
         "name": "M!LK Official",
-        "channel_id": "UCHqQCpqvSOcHQr6Oqa4_5wg", # 正しいM!LK公式ID
+        "channel_id": "UCHqQCpqvSOcHQr6Oqa4_5wg",
         "color": 0xFF0000 # 赤
     },
     {
         "name": "佐野勇斗だぞ",
-        "channel_id": "UCKBT9RsmIdJDxoNXUIXvX6A", # 正しい佐野勇斗個人ID
+        "channel_id": "UCKBT9RsmIdJDxoNXUIXvX6A",
         "color": 0xFF69B4 # ピーチヒップピンク
     },
     {
         "name": "じんだいチャンネル",
-        "channel_id": "UCk8oGFgksVxjh2YiU_D6hFQ", # 正しいじんだいチャンネルID
+        "channel_id": "UCk8oGFgksVxjh2YiU_D6hFQ",
         "color": 0xF5A623 # オレンジ・イエロー系
     }
 ]
@@ -97,24 +98,7 @@ def send_discord(title, text, url, color, bot_name):
     res = requests.post(WEBHOOK_URL, json=payload)
     return res.status_code in [200, 204]
 
-# テスト通知：M!LK公式の最新動画を届ける
-def send_milk_youtube_test(last_seen):
-    if not last_seen.get("milk_youtube_tested_v2"):
-        print("M!LK YouTubeテスト送信中...")
-        rss_url = "https://www.youtube.com/feeds/videos.xml?channel_id=UCHqQCpqvSOcHQr6Oqa4_5wg"
-        feed = feedparser.parse(rss_url)
-        if feed.entries:
-            latest = feed.entries[0]
-            send_discord(
-                title=f"🎬 [動作テスト] {latest.title}",
-                text=f"M!LK公式の最新動画です！通知テストとしてお届けします。\n{latest.link}",
-                url=latest.link,
-                color=0xFF0000,
-                bot_name="M!LK YouTube通知"
-            )
-            last_seen["milk_youtube_tested_v2"] = True
-
-# YouTube巡回
+# 1. YouTube巡回
 def check_youtube(last_seen):
     for yt in YOUTUBE_CHANNELS:
         ch_id = yt["channel_id"]
@@ -144,9 +128,11 @@ def check_youtube(last_seen):
             last_seen[key] = video_id
         time.sleep(1)
 
-# X (Twitter) 巡回
+# 2. X (Twitter) 巡回（Yahoo!リアルタイム検索連携方式・高速＆確実）
 def check_twitter(last_seen):
-    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     
     for member in ACCOUNTS:
         username = member.get("twitter")
@@ -154,91 +140,64 @@ def check_twitter(last_seen):
             continue
             
         key = f"twitter:{username}"
-        url = f"https://syndication.twitter.com/srv/timeline-profile/screen-name/{username}"
+        q = urllib.parse.quote("id:" + username)
+        url = f"https://search.yahoo.co.jp/realtime/search?p={q}"
         try:
             res = requests.get(url, headers=headers, timeout=10)
             if res.status_code != 200:
+                print(f"[X] HTTPエラー ({username}): {res.status_code}")
                 continue
 
-            soup = BeautifulSoup(res.text, "html.parser")
-            script = soup.find("script", id="__NEXT_DATA__")
-            if not script:
+            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', res.text)
+            if not match:
                 continue
 
-            data = json.loads(script.string)
-            timeline = data.get("props", {}).get("pageProps", {}).get("timeline", {}).get("entries", [])
+            data = json.loads(match.group(1))
+            entries = data.get("props", {}).get("pageProps", {}).get("pageData", {}).get("timeline", {}).get("entry", [])
             
-            for item in timeline:
-                tweet = item.get("content", {}).get("tweet")
-                if not tweet:
-                    continue
-                tweet_id = tweet.get("id_str")
-                tweet_text = tweet.get("text", "")
-                tweet_url = f"https://x.com/{username}/status/{tweet_id}"
+            # 本人の投稿を抽出
+            user_tweets = [e for e in entries if e.get("screenName", "").lower() == username.lower()]
+            if not user_tweets:
+                continue
 
-                if key not in last_seen:
-                    last_seen[key] = tweet_id
-                    break
+            latest_tweet = user_tweets[0]
+            tweet_id = str(latest_tweet.get("id"))
+            tweet_text = latest_tweet.get("displayText", "")
+            tweet_url = f"https://x.com/{username}/status/{tweet_id}"
 
-                if tweet_id != last_seen.get(key):
-                    print(f"[X] 新着 ({member['name']}): {tweet_text[:20]}")
-                    send_discord(
-                        title=f"🐦 X新着: {member['name']}",
-                        text=tweet_text,
-                        url=tweet_url,
-                        color=member["color"],
-                        bot_name=f"{member['name']} X通知"
-                    )
-                    last_seen[key] = tweet_id
-                break
+            # 動作確認テスト：M!LK公式の最新Xポストを1件送る
+            if not last_seen.get("twitter_test_done_v2") and username == "milk_info":
+                send_discord(
+                    title=f"🐦 [X動作確認] {member['name']}",
+                    text=f"Xの連携テスト成功です！\n\n{tweet_text}",
+                    url=tweet_url,
+                    color=member["color"],
+                    bot_name=f"{member['name']} X通知"
+                )
+                last_seen["twitter_test_done_v2"] = True
+
+            if key not in last_seen:
+                last_seen[key] = tweet_id
+                continue
+
+            if tweet_id != last_seen.get(key):
+                print(f"[X] 新着検知 ({member['name']}): {tweet_text[:20]}")
+                send_discord(
+                    title=f"🐦 X新着: {member['name']}",
+                    text=tweet_text,
+                    url=tweet_url,
+                    color=member["color"],
+                    bot_name=f"{member['name']} X通知"
+                )
+                last_seen[key] = tweet_id
         except Exception as e:
             print(f"[X] エラー ({username}): {e}")
         time.sleep(1.5)
 
-# Instagram 巡回
-def check_instagram(last_seen):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    
-    for member in ACCOUNTS:
-        username = member.get("instagram")
-        if not username:
-            continue
-            
-        key = f"instagram:{username}"
-        url = f"https://imginn.com/{username}/"
-        try:
-            res = requests.get(url, headers=headers, timeout=10)
-            if res.status_code == 200:
-                soup = BeautifulSoup(res.text, "html.parser")
-                first_post = soup.find("a", class_="item")
-                if first_post and first_post.get("href"):
-                    post_path = first_post.get("href")
-                    post_url = f"https://www.instagram.com{post_path}"
-
-                    if key not in last_seen:
-                        last_seen[key] = post_path
-                        continue
-
-                    if post_path != last_seen.get(key):
-                        print(f"[Instagram] 新着 ({member['name']}): {post_url}")
-                        send_discord(
-                            title=f"📸 Instagram新着: {member['name']}",
-                            text=f"{member['name']} のInstagramが新しく投稿されました！\n{post_url}",
-                            url=post_url,
-                            color=member["color"],
-                            bot_name=f"{member['name']} インスタ通知"
-                        )
-                        last_seen[key] = post_path
-        except Exception as e:
-            print(f"[Instagram] エラー ({username}): {e}")
-        time.sleep(1.5)
-
 def main():
     last_seen = load_last_seen()
-    send_milk_youtube_test(last_seen)
     check_youtube(last_seen)
     check_twitter(last_seen)
-    check_instagram(last_seen)
     save_last_seen(last_seen)
 
 if __name__ == "__main__":
