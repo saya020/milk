@@ -29,43 +29,37 @@ YOUTUBE_CHANNELS = [
     }
 ]
 
-# 公式サイト（sd-milk.com）掲載の100%本物のアカウント設定
+# 公式サイト（sd-milk.com）掲載のアカウント設定
 ACCOUNTS = [
     {
         "name": "M!LK 公式",
         "color": 0x333333,
-        "twitter": "milk_info",
-        "instagram": "milk_official_2014"
+        "twitter": "milk_info"
     },
     {
         "name": "佐野 勇斗",
         "color": 0xFF69B4,
-        "twitter": "sanohayatodazo",
-        "instagram": "sanohayato_milk"
+        "twitter": "sanohayatodazo"
     },
     {
         "name": "塩﨑 太智",
         "color": 0x1E90FF,
-        "twitter": "shiozaki__info",
-        "instagram": "shiozakidaichi0911_milk" # 公式IDに修正
+        "twitter": "shiozaki__info"
     },
     {
         "name": "曽野 舜太",
         "color": 0xFF2800,
-        "twitter": "sono_shunta_",
-        "instagram": "sonoshunta_milk" # 公式IDに修正
+        "twitter": "sono_shunta_"
     },
     {
         "name": "山中 柔太朗",
         "color": 0xE8ECEF,
-        "twitter": "jyu_ta_ro",
-        "instagram": "jyutaro_milk" # 公式IDに修正
+        "twitter": "jyu_ta_ro"
     },
     {
         "name": "吉田 仁人",
         "color": 0xFFD700,
-        "twitter": "Y_Jinto_1215",
-        "instagram": "yoshida_jinto_milk" # 公式IDに修正
+        "twitter": "Y_Jinto_1215"
     }
 ]
 
@@ -82,19 +76,23 @@ def save_last_seen(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-def send_discord(title, text, url, color, bot_name):
+def send_discord(title, text, url, color, bot_name, image_url=None):
     if not WEBHOOK_URL:
         print("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
         return False
     
+    embed = {
+        "title": title,
+        "description": text[:250] + ("..." if len(text) > 250 else ""),
+        "url": url,
+        "color": color
+    }
+    if image_url:
+        embed["image"] = {"url": image_url}
+
     payload = {
         "username": bot_name,
-        "embeds": [{
-            "title": title,
-            "description": text[:250] + ("..." if len(text) > 250 else ""),
-            "url": url,
-            "color": color
-        }]
+        "embeds": [embed]
     }
     res = requests.post(WEBHOOK_URL, json=payload)
     return res.status_code in [200, 204]
@@ -144,11 +142,30 @@ def verify_and_get_tweet(username, tweet_id):
         pass
     return None, None
 
-# 2. X (Twitter) 最強ハイブリッド巡回
+# TikTok公式oEmbedによる動画情報・サムネイル取得
+def get_tiktok_info(url):
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            final_url = res.geturl()
+        
+        if "tiktok.com" in final_url:
+            oe_url = f"https://www.tiktok.com/oembed?url={final_url}"
+            req_oe = urllib.request.Request(oe_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req_oe, timeout=5) as res_oe:
+                data = json.loads(res_oe.read().decode("utf-8"))
+                return {
+                    "url": final_url,
+                    "title": data.get("title", "TikTok新着動画"),
+                    "thumbnail": data.get("thumbnail_url")
+                }
+    except Exception as e:
+        print(f"TikTok情報取得エラー: {e}")
+    return None
+
+# 2. X (Twitter) ＆ TikTok 巡回
 def get_latest_tweet_smart(username):
     candidates = []
-    
-    # 検索①：通常タイムライン検索
     q1 = urllib.parse.quote("id:" + username)
     url1 = f"https://search.yahoo.co.jp/realtime/search?p={q1}"
     try:
@@ -166,7 +183,6 @@ def get_latest_tweet_smart(username):
     except Exception:
         pass
 
-    # 検索②：リプライ検知（検索フィルターをすり抜けた最新ポストを追跡）
     q2 = urllib.parse.quote("@" + username)
     url2 = f"https://search.yahoo.co.jp/realtime/search?p={q2}"
     try:
@@ -186,7 +202,6 @@ def get_latest_tweet_smart(username):
     if not candidates:
         return None, None
 
-    # Snowflake IDの降順（大きい＝最も新しい）でソート
     candidates.sort(key=lambda x: x[0], reverse=True)
     
     for _, text, tid_str in candidates:
@@ -198,7 +213,7 @@ def get_latest_tweet_smart(username):
 
     return None, None
 
-def check_twitter(last_seen):
+def check_twitter_and_tiktok(last_seen):
     for member in ACCOUNTS:
         username = member.get("twitter")
         if not username:
@@ -212,28 +227,68 @@ def check_twitter(last_seen):
 
             tweet_url = f"https://x.com/{username}/status/{tweet_id}"
 
+            # 動作テスト：TikTok専用通知がどんな形で届くか1回だけ送信
+            if not last_seen.get("tiktok_card_tested") and username == "milk_info":
+                send_discord(
+                    title="🎵 [動作確認] TikTok新着動画: M!LK",
+                    text="TikTokが更新されると、このようにサムネイル画像付きで届きます！\n\n新曲🪐 #時空超えてユニバース 略して #ときユニ 先行リリース❣️",
+                    url="https://vt.tiktok.com/ZSq6mk9tU/",
+                    color=0xEE1D52, # TikTokネオンピンク
+                    bot_name="M!LK TikTok通知",
+                    image_url="https://p19-common-sign.tiktokcdn.com/tos-alisg-p-0037/oYeSAPGAAQVALEFgYoeEjLF7AeYKhQIqAIDO5I~tplv-tiktokx-origin.image?dr=14575&x-expires=1788969600&x-signature=piB11E5VCXX9iMlZOBsorOvSTqw%3D&t=4d5b0474&ps=13740610&shp=81f88b70&shcp=43f4a2f9&idc=my"
+                )
+                last_seen["tiktok_card_tested"] = True
+
             if key not in last_seen:
                 last_seen[key] = tweet_id
                 continue
 
             if tweet_id != last_seen.get(key):
-                print(f"[X] 新着検知 ({member['name']}): {tweet_text[:20]}")
-                send_discord(
-                    title=f"🐦 X新着: {member['name']}",
-                    text=tweet_text,
-                    url=tweet_url,
-                    color=member["color"],
-                    bot_name=f"{member['name']} X通知"
-                )
+                print(f"[新着検知] ({member['name']}): {tweet_text[:20]}")
+                
+                # TikTok動画の更新告知かチェック
+                tiktok_match = re.search(r"https?://[^\s]+", tweet_text)
+                if username == "milk_info" and ("TikTok" in tweet_text or "tiktok" in tweet_text) and tiktok_match:
+                    tiktok_url = tiktok_match.group(0)
+                    tiktok_info = get_tiktok_info(tiktok_url)
+                    if tiktok_info:
+                        # TikTok専用カードとして送信！
+                        send_discord(
+                            title=f"🎵 TikTok新着動画: M!LK",
+                            text=tiktok_info["title"],
+                            url=tiktok_info["url"],
+                            color=0xEE1D52, # TikTokネオンピンク
+                            bot_name="M!LK TikTok通知",
+                            image_url=tiktok_info["thumbnail"]
+                        )
+                    else:
+                        # TikTok情報取得失敗時は通常送信
+                        send_discord(
+                            title=f"🎵 TikTok新着: M!LK",
+                            text=tweet_text,
+                            url=tweet_url,
+                            color=0xEE1D52,
+                            bot_name="M!LK TikTok通知"
+                        )
+                else:
+                    # 通常のXポスト通知
+                    send_discord(
+                        title=f"🐦 X新着: {member['name']}",
+                        text=tweet_text,
+                        url=tweet_url,
+                        color=member["color"],
+                        bot_name=f"{member['name']} X通知"
+                    )
+
                 last_seen[key] = tweet_id
         except Exception as e:
-            print(f"[X] エラー ({username}): {e}")
+            print(f"[エラー] ({username}): {e}")
         time.sleep(1.5)
 
 def main():
     last_seen = load_last_seen()
     check_youtube(last_seen)
-    check_twitter(last_seen)
+    check_twitter_and_tiktok(last_seen)
     save_last_seen(last_seen)
 
 if __name__ == "__main__":
