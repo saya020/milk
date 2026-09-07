@@ -3,28 +3,29 @@ import json
 import time
 import re
 import urllib.parse
+import urllib.request
 import requests
 import feedparser
 
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DATA_FILE = "last_seen.json"
 
-# YouTubeチャンネル一覧（公式＋個人＋じんだい）
+# YouTubeチャンネル一覧
 YOUTUBE_CHANNELS = [
     {
         "name": "M!LK Official",
         "channel_id": "UCHqQCpqvSOcHQr6Oqa4_5wg",
-        "color": 0xFF0000 # 赤
+        "color": 0xFF0000
     },
     {
         "name": "佐野勇斗だぞ",
         "channel_id": "UCKBT9RsmIdJDxoNXUIXvX6A",
-        "color": 0xFF69B4 # ピーチヒップピンク
+        "color": 0xFF69B4
     },
     {
         "name": "じんだいチャンネル",
         "channel_id": "UCk8oGFgksVxjh2YiU_D6hFQ",
-        "color": 0xF5A623 # オレンジ・イエロー系
+        "color": 0xF5A623
     }
 ]
 
@@ -37,27 +38,27 @@ ACCOUNTS = [
     },
     {
         "name": "佐野 勇斗",
-        "color": 0xFF69B4, # ピーチヒップピンク
+        "color": 0xFF69B4,
         "twitter": "sanohayatodazo"
     },
     {
         "name": "塩﨑 太智",
-        "color": 0x1E90FF, # サファイアブルー
+        "color": 0x1E90FF,
         "twitter": "shiozaki__info"
     },
     {
         "name": "曽野 舜太",
-        "color": 0xFF2800, # ハッピーレッド
+        "color": 0xFF2800,
         "twitter": "sono_shunta_"
     },
     {
         "name": "山中 柔太朗",
-        "color": 0xE8ECEF, # クリスタルホワイト
+        "color": 0xE8ECEF,
         "twitter": "jyu_ta_ro"
     },
     {
         "name": "吉田 仁人",
-        "color": 0xFFD700, # きらめきイエロー
+        "color": 0xFFD700,
         "twitter": "Y_Jinto_1215"
     }
 ]
@@ -122,48 +123,94 @@ def check_youtube(last_seen):
             last_seen[key] = video_id
         time.sleep(1)
 
-# 2. X (Twitter) 巡回（Yahoo!リアルタイム検索連携方式）
-def check_twitter(last_seen):
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+# Twitter公式oEmbedによる本人確認＆本文取得
+def verify_and_get_tweet(username, tweet_id):
+    oe_url = f"https://publish.twitter.com/oembed?url=https://x.com/{username}/status/{tweet_id}"
+    try:
+        req = urllib.request.Request(oe_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            data = json.loads(res.read().decode("utf-8"))
+            author = data.get("author_url", "").lower()
+            if username.lower() in author:
+                clean_text = re.sub(r"<[^>]+>", "", data.get("html", "")).split("—")[0].strip()
+                return str(tweet_id), clean_text
+    except Exception:
+        pass
+    return None, None
+
+# 2. X (Twitter) 最強ハイブリッド巡回
+def get_latest_tweet_smart(username):
+    candidates = []
     
+    # 検索①：通常タイムライン検索
+    q1 = urllib.parse.quote("id:" + username)
+    url1 = f"https://search.yahoo.co.jp/realtime/search?p={q1}"
+    try:
+        req1 = urllib.request.Request(url1, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req1, timeout=8) as res:
+            html1 = res.read().decode("utf-8")
+        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', html1)
+        if match:
+            data = json.loads(match.group(1))
+            entries = data.get("props", {}).get("pageProps", {}).get("pageData", {}).get("timeline", {}).get("entry", [])
+            for e in entries:
+                if e.get("screenName", "").lower() == username.lower():
+                    tid_str = str(e.get("id"))
+                    candidates.append((int(tid_str), e.get("displayText", ""), tid_str))
+    except Exception:
+        pass
+
+    # 検索②：リプライ検知（検索フィルターをすり抜けた最新ポストを追跡）
+    q2 = urllib.parse.quote("@" + username)
+    url2 = f"https://search.yahoo.co.jp/realtime/search?p={q2}"
+    try:
+        req2 = urllib.request.Request(url2, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req2, timeout=8) as res:
+            html2 = res.read().decode("utf-8")
+        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', html2)
+        if match:
+            data = json.loads(match.group(1))
+            entries = data.get("props", {}).get("pageProps", {}).get("pageData", {}).get("timeline", {}).get("entry", [])
+            reply_targets = set([str(e.get("inReplyTo")) for e in entries if e.get("inReplyTo")])
+            for target_id in reply_targets:
+                candidates.append((int(target_id), None, target_id))
+    except Exception:
+        pass
+
+    if not candidates:
+        return None, None
+
+    # Snowflake IDの降順（大きい＝最も新しい）でソート
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    
+    for _, text, tid_str in candidates:
+        if text:
+            return tid_str, text
+        # 本文がない場合はTwitter公式oEmbedで確認
+        valid_id, valid_text = verify_and_get_tweet(username, tid_str)
+        if valid_id:
+            return valid_id, valid_text
+
+    return None, None
+
+def check_twitter(last_seen):
     for member in ACCOUNTS:
         username = member.get("twitter")
         if not username:
             continue
             
         key = f"twitter:{username}"
-        q = urllib.parse.quote("id:" + username)
-        url = f"https://search.yahoo.co.jp/realtime/search?p={q}"
         try:
-            res = requests.get(url, headers=headers, timeout=10)
-            if res.status_code != 200:
-                print(f"[X] HTTPエラー ({username}): {res.status_code}")
+            tweet_id, tweet_text = get_latest_tweet_smart(username)
+            if not tweet_id:
                 continue
 
-            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', res.text)
-            if not match:
-                continue
-
-            data = json.loads(match.group(1))
-            entries = data.get("props", {}).get("pageProps", {}).get("pageData", {}).get("timeline", {}).get("entry", [])
-            
-            # 本人の投稿のみを抽出
-            user_tweets = [e for e in entries if e.get("screenName", "").lower() == username.lower()]
-            if not user_tweets:
-                continue
-
-            latest_tweet = user_tweets[0]
-            tweet_id = str(latest_tweet.get("id"))
-            tweet_text = latest_tweet.get("displayText", "")
             tweet_url = f"https://x.com/{username}/status/{tweet_id}"
 
             if key not in last_seen:
                 last_seen[key] = tweet_id
                 continue
 
-            # 新しいポストがあった時だけ通知！
             if tweet_id != last_seen.get(key):
                 print(f"[X] 新着検知 ({member['name']}): {tweet_text[:20]}")
                 send_discord(
