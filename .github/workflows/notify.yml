@@ -2,13 +2,16 @@ name: Check M!LK Updates
 
 on:
   schedule:
-    # 20分おきに自動実行
-    - cron: '*/20 * * * *'
+    # 10分おきに自動実行
+    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 jobs:
   check-updates:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: リポジトリのコードを取得
         uses: actions/checkout@v4
