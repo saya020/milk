@@ -9,7 +9,7 @@ import feedparser
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DATA_FILE = "last_seen.json"
 
-# YouTubeチャンネル一覧
+# YouTubeチャンネル一覧（公式＋個人＋じんだい）
 YOUTUBE_CHANNELS = [
     {
         "name": "M!LK Official",
@@ -33,38 +33,32 @@ ACCOUNTS = [
     {
         "name": "M!LK 公式",
         "color": 0x333333,
-        "twitter": "milk_info",
-        "instagram": "milk_official_2014"
+        "twitter": "milk_info"
     },
     {
         "name": "佐野 勇斗",
         "color": 0xFF69B4, # ピーチヒップピンク
-        "twitter": "sanohayatodazo",
-        "instagram": "sanohayato_milk"
+        "twitter": "sanohayatodazo"
     },
     {
         "name": "塩﨑 太智",
         "color": 0x1E90FF, # サファイアブルー
-        "twitter": "shiozaki__info",
-        "instagram": "daichi_shiozaki_milk_official"
+        "twitter": "shiozaki__info"
     },
     {
         "name": "曽野 舜太",
         "color": 0xFF2800, # ハッピーレッド
-        "twitter": "sono_shunta_",
-        "instagram": "shunta_sono_milk_official"
+        "twitter": "sono_shunta_"
     },
     {
         "name": "山中 柔太朗",
         "color": 0xE8ECEF, # クリスタルホワイト
-        "twitter": "jyu_ta_ro",
-        "instagram": "jutaro_yamanaka_milk_official"
+        "twitter": "jyu_ta_ro"
     },
     {
         "name": "吉田 仁人",
         "color": 0xFFD700, # きらめきイエロー
-        "twitter": "Y_Jinto_1215",
-        "instagram": "jinto_yoshida_milk_official"
+        "twitter": "Y_Jinto_1215"
     }
 ]
 
@@ -128,7 +122,7 @@ def check_youtube(last_seen):
             last_seen[key] = video_id
         time.sleep(1)
 
-# 2. X (Twitter) 巡回（Yahoo!リアルタイム検索連携方式・高速＆確実）
+# 2. X (Twitter) 巡回（Yahoo!リアルタイム検索連携方式）
 def check_twitter(last_seen):
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -155,7 +149,7 @@ def check_twitter(last_seen):
             data = json.loads(match.group(1))
             entries = data.get("props", {}).get("pageProps", {}).get("pageData", {}).get("timeline", {}).get("entry", [])
             
-            # 本人の投稿を抽出
+            # 本人の投稿のみを抽出
             user_tweets = [e for e in entries if e.get("screenName", "").lower() == username.lower()]
             if not user_tweets:
                 continue
@@ -165,21 +159,11 @@ def check_twitter(last_seen):
             tweet_text = latest_tweet.get("displayText", "")
             tweet_url = f"https://x.com/{username}/status/{tweet_id}"
 
-            # 動作確認テスト：M!LK公式の最新Xポストを1件送る
-            if not last_seen.get("twitter_test_done_v2") and username == "milk_info":
-                send_discord(
-                    title=f"🐦 [X動作確認] {member['name']}",
-                    text=f"Xの連携テスト成功です！\n\n{tweet_text}",
-                    url=tweet_url,
-                    color=member["color"],
-                    bot_name=f"{member['name']} X通知"
-                )
-                last_seen["twitter_test_done_v2"] = True
-
             if key not in last_seen:
                 last_seen[key] = tweet_id
                 continue
 
+            # 新しいポストがあった時だけ通知！
             if tweet_id != last_seen.get(key):
                 print(f"[X] 新着検知 ({member['name']}): {tweet_text[:20]}")
                 send_discord(
