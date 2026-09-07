@@ -36,4 +36,4 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add last_seen.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update last_seen.json [skip ci]" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update last_seen.json [skip ci]" && git pull --rebase origin main && git push origin main)
