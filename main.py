@@ -76,24 +76,24 @@ def save_last_seen(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-def send_discord(title, text, url, color, bot_name, image_url=None):
+def send_discord(title, text, url, color, bot_name, show_link_preview=False):
     if not WEBHOOK_URL:
         print("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
         return False
     
-    embed = {
-        "title": title,
-        "description": text[:250] + ("..." if len(text) > 250 else ""),
-        "url": url,
-        "color": color
-    }
-    if image_url:
-        embed["image"] = {"url": image_url}
-
     payload = {
         "username": bot_name,
-        "embeds": [embed]
+        "embeds": [{
+            "title": title,
+            "description": text[:250] + ("..." if len(text) > 250 else ""),
+            "url": url,
+            "color": color
+        }]
     }
+    # サムネイルを自動展開させるためURLを本文にも付与
+    if show_link_preview and url:
+        payload["content"] = url
+
     res = requests.post(WEBHOOK_URL, json=payload)
     return res.status_code in [200, 204]
 
@@ -122,7 +122,8 @@ def check_youtube(last_seen):
                 text=f"{yt['name']} に新しい動画が公開されました！\n{latest.link}",
                 url=latest.link,
                 color=yt["color"],
-                bot_name=f"{yt['name']} YouTube通知"
+                bot_name=f"{yt['name']} YouTube通知",
+                show_link_preview=True
             )
             last_seen[key] = video_id
         time.sleep(1)
@@ -142,28 +143,7 @@ def verify_and_get_tweet(username, tweet_id):
         pass
     return None, None
 
-# TikTok公式oEmbedによる動画情報・サムネイル取得
-def get_tiktok_info(url):
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as res:
-            final_url = res.geturl()
-        
-        if "tiktok.com" in final_url:
-            oe_url = f"https://www.tiktok.com/oembed?url={final_url}"
-            req_oe = urllib.request.Request(oe_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req_oe, timeout=5) as res_oe:
-                data = json.loads(res_oe.read().decode("utf-8"))
-                return {
-                    "url": final_url,
-                    "title": data.get("title", "TikTok新着動画"),
-                    "thumbnail": data.get("thumbnail_url")
-                }
-    except Exception as e:
-        print(f"TikTok情報取得エラー: {e}")
-    return None
-
-# 2. X (Twitter) ＆ TikTok 巡回
+# 2. X (Twitter) ＆ TikTok 最強ハイブリッド巡回
 def get_latest_tweet_smart(username):
     candidates = []
     q1 = urllib.parse.quote("id:" + username)
@@ -227,17 +207,17 @@ def check_twitter_and_tiktok(last_seen):
 
             tweet_url = f"https://x.com/{username}/status/{tweet_id}"
 
-            # 動作テスト：TikTok専用通知がどんな形で届くか1回だけ送信
-            if not last_seen.get("tiktok_card_tested") and username == "milk_info":
+            # 動作テスト：TikTok動画のサムネイル展開テスト（1回送信）
+            if not last_seen.get("tiktok_thumb_test_v2") and username == "milk_info":
                 send_discord(
                     title="🎵 [動作確認] TikTok新着動画: M!LK",
-                    text="TikTokが更新されると、このようにサムネイル画像付きで届きます！\n\n新曲🪐 #時空超えてユニバース 略して #ときユニ 先行リリース❣️",
+                    text="新曲🪐 #時空超えてユニバース 略して #ときユニ 先行リリース❣️\nぜひ踊ってください🕺",
                     url="https://vt.tiktok.com/ZSq6mk9tU/",
                     color=0xEE1D52, # TikTokネオンピンク
                     bot_name="M!LK TikTok通知",
-                    image_url="https://p19-common-sign.tiktokcdn.com/tos-alisg-p-0037/oYeSAPGAAQVALEFgYoeEjLF7AeYKhQIqAIDO5I~tplv-tiktokx-origin.image?dr=14575&x-expires=1788969600&x-signature=piB11E5VCXX9iMlZOBsorOvSTqw%3D&t=4d5b0474&ps=13740610&shp=81f88b70&shcp=43f4a2f9&idc=my"
+                    show_link_preview=True
                 )
-                last_seen["tiktok_card_tested"] = True
+                last_seen["tiktok_thumb_test_v2"] = True
 
             if key not in last_seen:
                 last_seen[key] = tweet_id
@@ -250,26 +230,14 @@ def check_twitter_and_tiktok(last_seen):
                 tiktok_match = re.search(r"https?://[^\s]+", tweet_text)
                 if username == "milk_info" and ("TikTok" in tweet_text or "tiktok" in tweet_text) and tiktok_match:
                     tiktok_url = tiktok_match.group(0)
-                    tiktok_info = get_tiktok_info(tiktok_url)
-                    if tiktok_info:
-                        # TikTok専用カードとして送信！
-                        send_discord(
-                            title=f"🎵 TikTok新着動画: M!LK",
-                            text=tiktok_info["title"],
-                            url=tiktok_info["url"],
-                            color=0xEE1D52, # TikTokネオンピンク
-                            bot_name="M!LK TikTok通知",
-                            image_url=tiktok_info["thumbnail"]
-                        )
-                    else:
-                        # TikTok情報取得失敗時は通常送信
-                        send_discord(
-                            title=f"🎵 TikTok新着: M!LK",
-                            text=tweet_text,
-                            url=tweet_url,
-                            color=0xEE1D52,
-                            bot_name="M!LK TikTok通知"
-                        )
+                    send_discord(
+                        title=f"🎵 TikTok新着動画: M!LK",
+                        text=tweet_text,
+                        url=tiktok_url,
+                        color=0xEE1D52, # TikTokネオンピンク
+                        bot_name="M!LK TikTok通知",
+                        show_link_preview=True
+                    )
                 else:
                     # 通常のXポスト通知
                     send_discord(
