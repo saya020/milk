@@ -29,37 +29,43 @@ YOUTUBE_CHANNELS = [
     }
 ]
 
-# メンバー＆公式アカウント設定（メンバーカラー付き）
+# 公式サイト（sd-milk.com）掲載の100%本物のアカウント設定
 ACCOUNTS = [
     {
         "name": "M!LK 公式",
         "color": 0x333333,
-        "twitter": "milk_info"
+        "twitter": "milk_info",
+        "instagram": "milk_official_2014"
     },
     {
         "name": "佐野 勇斗",
         "color": 0xFF69B4,
-        "twitter": "sanohayatodazo"
+        "twitter": "sanohayatodazo",
+        "instagram": "sanohayato_milk"
     },
     {
         "name": "塩﨑 太智",
         "color": 0x1E90FF,
-        "twitter": "shiozaki__info"
+        "twitter": "shiozaki__info",
+        "instagram": "shiozakidaichi0911_milk" # 公式IDに修正
     },
     {
         "name": "曽野 舜太",
         "color": 0xFF2800,
-        "twitter": "sono_shunta_"
+        "twitter": "sono_shunta_",
+        "instagram": "sonoshunta_milk" # 公式IDに修正
     },
     {
         "name": "山中 柔太朗",
         "color": 0xE8ECEF,
-        "twitter": "jyu_ta_ro"
+        "twitter": "jyu_ta_ro",
+        "instagram": "jyutaro_milk" # 公式IDに修正
     },
     {
         "name": "吉田 仁人",
         "color": 0xFFD700,
-        "twitter": "Y_Jinto_1215"
+        "twitter": "Y_Jinto_1215",
+        "instagram": "yoshida_jinto_milk" # 公式IDに修正
     }
 ]
 
@@ -186,7 +192,6 @@ def get_latest_tweet_smart(username):
     for _, text, tid_str in candidates:
         if text:
             return tid_str, text
-        # 本文がない場合はTwitter公式oEmbedで確認
         valid_id, valid_text = verify_and_get_tweet(username, tid_str)
         if valid_id:
             return valid_id, valid_text
