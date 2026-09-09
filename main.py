@@ -201,12 +201,12 @@ def get_tiktok_thumbnail(entry):
     return match.group(1) if match else None
 
 def check_tiktok(last_seen):
-    # RSSHubは公開インスタンスによってTikTok取得可否が変わるため、
-    # 複数インスタンスを順番に試して、403/5xx等で止まらないようにする。
-    RSSHUB_INSTANCES = [
+    # RSSHubはTikTokのユーザー名に @ が必要。複数の公開インスタンスを順番に試す
+    rss_hosts = [
+        "https://rsshub.moonagic.com",
         "https://hub.slarker.me",
+        "https://rsshub.ktachibana.party",
         "https://rsshub.app",
-        "https://rsshub.rssforever.com",
     ]
 
     for account in TIKTOK_ACCOUNTS:
@@ -215,38 +215,37 @@ def check_tiktok(last_seen):
         feed = None
         used_url = None
 
-        for base_url in RSSHUB_INSTANCES:
-            rss_url = f"{base_url}/tiktok/user/{username}"
+        for host in rss_hosts:
+            rss_url = f"{host}/tiktok/user/@{username}"
             try:
                 response = requests.get(
                     rss_url,
                     headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+                        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
                         "Accept": "application/rss+xml, application/xml, text/xml, */*"
                     },
-                    timeout=20
+                    timeout=25
                 )
-
                 if response.status_code != 200:
-                    print(f"[TikTok] RSSHub {response.status_code}: {base_url}")
+                    print(f"[TikTok] RSS接続失敗: {response.status_code} {host}")
                     continue
 
                 parsed = feedparser.parse(response.content)
                 if parsed.entries:
                     feed = parsed
                     used_url = rss_url
+                    print(f"[TikTok] RSS取得成功: @{username} <- {host}")
                     break
-
-                print(f"[TikTok] RSSに投稿がありません: {base_url}")
+                else:
+                    print(f"[TikTok] RSS空: {host}")
             except Exception as e:
-                print(f"[TikTok] RSSHub接続失敗: {base_url} ({e})")
+                print(f"[TikTok] RSS接続エラー: {host} / {e}")
+
+        if feed is None or not feed.entries:
+            print(f"[TikTokエラー] (@{username}): すべてのRSSHubインスタンスで取得失敗")
+            continue
 
         try:
-            if feed is None or not feed.entries:
-                print(f"[TikTokエラー] (@{username}): 利用可能なRSSHubから投稿を取得できませんでした")
-                continue
-
-            print(f"[TikTok] RSS取得成功: @{username} <- {used_url}")
             latest = feed.entries[0]
             item_id = str(latest.get("id") or latest.get("guid") or latest.get("link") or "")
             item_url = latest.get("link") or f"https://www.tiktok.com/@{username}"
@@ -259,7 +258,6 @@ def check_tiktok(last_seen):
                 continue
 
             if key not in last_seen:
-                # 初回実行では既存投稿を通知しない
                 last_seen[key] = item_id
                 print(f"[TikTok] 初回登録: @{username} -> {title}")
                 continue
@@ -279,7 +277,6 @@ def check_tiktok(last_seen):
                     image_url=thumbnail
                 )
                 last_seen[key] = item_id
-
         except Exception as e:
             print(f"[TikTokエラー] (@{username}): {e}")
 
