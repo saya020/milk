@@ -26,10 +26,20 @@ YOUTUBE_CHANNELS = [
         "name": "じんだいチャンネル",
         "channel_id": "UCk8oGFgksVxjh2YiU_D6hFQ",
         "color": 0xF5A623
+    },
+    {
+        "name": "劇場版 じゅうたろう",
+        "channel_id": "UC7YwvfJJevPlbjD_KKx1pkQ",
+        "color": 0xE8ECEF
+    },
+    {
+        "name": "曽野舜太",
+        "channel_id": "UCWWcLG54g_jtOaRMxs_KsWQ",
+        "color": 0xFF2800
     }
 ]
 
-# 公式サイト（sd-milk.com）掲載のアカウント設定
+# X (Twitter) アカウント一覧
 ACCOUNTS = [
     {
         "name": "M!LK 公式",
@@ -63,6 +73,27 @@ ACCOUNTS = [
     }
 ]
 
+# TikTokアカウント一覧
+TIKTOK_ACCOUNTS = [
+    {
+        "name": "M!LK Official",
+        "username": "milk_official",
+        "color": 0xEE1D52
+    },
+    {
+        "name": "ウシ活",
+        "username": "milk_ushikatsu",
+        "color": 0xEE1D52
+    }
+]
+
+# RSSHubインスタンス（フォールバック用）
+RSSHUB_INSTANCES = [
+    "https://rsshub.ktachibana.party",
+    "https://rsshub.moonagic.com",
+    "https://hub.slarker.me"
+]
+
 def load_last_seen():
     if os.path.exists(DATA_FILE):
         try:
@@ -88,13 +119,12 @@ def send_discord(title, text, url, color, bot_name, image_url=None):
         "color": color
     }
 
-    # サムネイル画像がある場合はダウンロードして直接添付アップロード
     if image_url:
         try:
             req_img = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req_img, timeout=5) as res_img:
                 img_data = res_img.read()
-            
+
             embed["image"] = {"url": "attachment://thumbnail.jpg"}
             payload_json = {
                 "username": bot_name,
@@ -109,7 +139,6 @@ def send_discord(title, text, url, color, bot_name, image_url=None):
         except Exception as e:
             print(f"画像添付エラー (通常送信に切替): {e}")
 
-    # 通常送信
     payload = {
         "username": bot_name,
         "embeds": [embed]
@@ -124,10 +153,10 @@ def check_youtube(last_seen):
         key = f"youtube:{ch_id}"
         rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={ch_id}"
         feed = feedparser.parse(rss_url)
-        
+
         if not feed.entries:
             continue
-        
+
         latest = feed.entries[0]
         video_id = latest.yt_videoid
 
@@ -137,11 +166,10 @@ def check_youtube(last_seen):
 
         if video_id != last_seen.get(key):
             print(f"[YouTube] 新着 ({yt['name']}): {latest.title}")
-            # YouTubeのサムネイル画像URL
             yt_thumb = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
             send_discord(
                 title=f"🎬 YouTube新着: {latest.title}",
-                text=f"{yt['name']} に新しい動画が公開されました！\n{latest.link}",
+                text=f"{yt['name']} に新しい動画が公開されました!\n{latest.link}",
                 url=latest.link,
                 color=yt["color"],
                 bot_name=f"{yt['name']} YouTube通知",
@@ -150,7 +178,60 @@ def check_youtube(last_seen):
             last_seen[key] = video_id
         time.sleep(1)
 
-# Twitter公式oEmbedによる本人確認＆本文取得
+# 2. TikTok巡回（RSSHub経由）
+def check_tiktok(last_seen):
+    for tt in TIKTOK_ACCOUNTS:
+        username = tt["username"]
+        key = f"tiktok:{username}"
+        feed = None
+
+        for instance in RSSHUB_INSTANCES:
+            rss_url = f"{instance}/tiktok/user/@{username}"
+            try:
+                feed = feedparser.parse(rss_url)
+                if feed.entries:
+                    print(f"[TikTok] RSS取得成功: @{username} <- {instance}")
+                    break
+                else:
+                    print(f"[TikTok] RSS接続失敗: {instance}")
+                    feed = None
+            except Exception as e:
+                print(f"[TikTok] RSS接続エラー: {instance} / {e}")
+                feed = None
+
+        if not feed or not feed.entries:
+            print(f"[TikTok] @{username} の取得に全インスタンス失敗")
+            continue
+
+        latest = feed.entries[0]
+        video_url = latest.link
+        video_title = latest.title if latest.title else "TikTok新着動画"
+
+        # サムネイルをRSSのdescriptionから抽出
+        thumb_url = None
+        desc = latest.get("description", "")
+        thumb_match = re.search(r'poster="([^"]+)"', desc)
+        if thumb_match:
+            thumb_url = thumb_match.group(1).replace("&amp;", "&")
+
+        if key not in last_seen:
+            last_seen[key] = video_url
+            continue
+
+        if video_url != last_seen.get(key):
+            print(f"[TikTok] 新着 (@{username}): {video_title[:30]}")
+            send_discord(
+                title=f"🎵 TikTok新着: {tt['name']}",
+                text=video_title,
+                url=video_url,
+                color=tt["color"],
+                bot_name=f"{tt['name']} TikTok通知",
+                image_url=thumb_url
+            )
+            last_seen[key] = video_url
+        time.sleep(1)
+
+# 3. ツイートの存在確認（oEmbed API）
 def verify_and_get_tweet(username, tweet_id):
     oe_url = f"https://publish.twitter.com/oembed?url=https://x.com/{username}/status/{tweet_id}"
     try:
@@ -165,123 +246,7 @@ def verify_and_get_tweet(username, tweet_id):
         pass
     return None, None
 
-# TikTokはRSSHub経由で巡回
-TIKTOK_ACCOUNTS = [
-    {
-        "name": "M!LK 公式",
-        "username": "milk_official",
-        "color": 0xEE1D52
-    },
-    {
-        "name": "M!LK 牛カツ",
-        "username": "milk_ushikatsu",
-        "color": 0xEE1D52
-    }
-]
-
-def get_tiktok_thumbnail(entry):
-    # RSSHub / feedparser が返す代表的な画像フィールドを順番に確認
-    for key in ("media_thumbnail", "media_content"):
-        values = entry.get(key, [])
-        if isinstance(values, dict):
-            values = [values]
-        for item in values:
-            if isinstance(item, dict) and item.get("url"):
-                return item["url"]
-
-    for enclosure in entry.get("enclosures", []):
-        if enclosure.get("type", "").startswith("image/") and enclosure.get("href"):
-            return enclosure["href"]
-        if enclosure.get("url"):
-            return enclosure["url"]
-
-    # description/content 内の img src を最後に確認
-    html = entry.get("summary", "") or entry.get("description", "")
-    match = re.search(r'<img[^>]+src=["\']([^"\']+)', html, re.I)
-    return match.group(1) if match else None
-
-def check_tiktok(last_seen):
-    # RSSHubはTikTokのユーザー名に @ が必要。複数の公開インスタンスを順番に試す
-    rss_hosts = [
-        "https://rsshub.moonagic.com",
-        "https://hub.slarker.me",
-        "https://rsshub.ktachibana.party",
-        "https://rsshub.app",
-    ]
-
-    for account in TIKTOK_ACCOUNTS:
-        username = account["username"]
-        key = f"tiktok:{username}"
-        feed = None
-        used_url = None
-
-        for host in rss_hosts:
-            rss_url = f"{host}/tiktok/user/@{username}"
-            try:
-                response = requests.get(
-                    rss_url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
-                        "Accept": "application/rss+xml, application/xml, text/xml, */*"
-                    },
-                    timeout=25
-                )
-                if response.status_code != 200:
-                    print(f"[TikTok] RSS接続失敗: {response.status_code} {host}")
-                    continue
-
-                parsed = feedparser.parse(response.content)
-                if parsed.entries:
-                    feed = parsed
-                    used_url = rss_url
-                    print(f"[TikTok] RSS取得成功: @{username} <- {host}")
-                    break
-                else:
-                    print(f"[TikTok] RSS空: {host}")
-            except Exception as e:
-                print(f"[TikTok] RSS接続エラー: {host} / {e}")
-
-        if feed is None or not feed.entries:
-            print(f"[TikTokエラー] (@{username}): すべてのRSSHubインスタンスで取得失敗")
-            continue
-
-        try:
-            latest = feed.entries[0]
-            item_id = str(latest.get("id") or latest.get("guid") or latest.get("link") or "")
-            item_url = latest.get("link") or f"https://www.tiktok.com/@{username}"
-            title = latest.get("title") or "TikTok新着動画"
-            pub_date = latest.get("published") or latest.get("updated") or ""
-            thumbnail = get_tiktok_thumbnail(latest)
-
-            if not item_id:
-                print(f"[TikTok] 識別子を取得できません: @{username}")
-                continue
-
-            if key not in last_seen:
-                last_seen[key] = item_id
-                print(f"[TikTok] 初回登録: @{username} -> {title}")
-                continue
-
-            if item_id != last_seen.get(key):
-                print(f"[TikTok] 新着 ({account['name']}): {title}")
-                text = title
-                if pub_date:
-                    text += f"\n投稿日: {pub_date}"
-
-                send_discord(
-                    title=f"🎵 TikTok新着: {account['name']}",
-                    text=text,
-                    url=item_url,
-                    color=account["color"],
-                    bot_name=f"{account['name']} TikTok通知",
-                    image_url=thumbnail
-                )
-                last_seen[key] = item_id
-        except Exception as e:
-            print(f"[TikTokエラー] (@{username}): {e}")
-
-        time.sleep(1)
-
+# 4. Yahoo Realtime Search でツイート検索
 def get_latest_tweet_smart(username):
     candidates = []
     q1 = urllib.parse.quote("id:" + username)
@@ -321,7 +286,7 @@ def get_latest_tweet_smart(username):
         return None, None
 
     candidates.sort(key=lambda x: x[0], reverse=True)
-    
+
     for _, text, tid_str in candidates:
         if text:
             return tid_str, text
@@ -331,6 +296,7 @@ def get_latest_tweet_smart(username):
 
     return None, None
 
+# 5. X (Twitter) 巡回
 def check_twitter(last_seen):
     for member in ACCOUNTS:
         username = member.get("twitter")
@@ -350,25 +316,24 @@ def check_twitter(last_seen):
                 continue
 
             if tweet_id != last_seen.get(key):
-                print(f"[X] 新着 ({member['name']}): {tweet_text[:20] if tweet_text else ''}")
+                print(f"[新着検知] ({member['name']}): {tweet_text[:20]}")
                 send_discord(
                     title=f"🐦 X新着: {member['name']}",
-                    text=tweet_text or "新しいポストが投稿されました。",
+                    text=tweet_text,
                     url=tweet_url,
                     color=member["color"],
                     bot_name=f"{member['name']} X通知"
                 )
                 last_seen[key] = tweet_id
         except Exception as e:
-            print(f"[Xエラー] ({username}): {e}")
+            print(f"[エラー] ({username}): {e}")
         time.sleep(1.5)
-
 
 def main():
     last_seen = load_last_seen()
     check_youtube(last_seen)
-    check_twitter(last_seen)
     check_tiktok(last_seen)
+    check_twitter(last_seen)
     save_last_seen(last_seen)
 
 if __name__ == "__main__":
