@@ -201,24 +201,52 @@ def get_tiktok_thumbnail(entry):
     return match.group(1) if match else None
 
 def check_tiktok(last_seen):
+    # RSSHubは公開インスタンスによってTikTok取得可否が変わるため、
+    # 複数インスタンスを順番に試して、403/5xx等で止まらないようにする。
+    RSSHUB_INSTANCES = [
+        "https://hub.slarker.me",
+        "https://rsshub.app",
+        "https://rsshub.rssforever.com",
+    ]
+
     for account in TIKTOK_ACCOUNTS:
         username = account["username"]
         key = f"tiktok:{username}"
-        rss_url = f"https://rsshub.app/tiktok/user/{username}"
+        feed = None
+        used_url = None
+
+        for base_url in RSSHUB_INSTANCES:
+            rss_url = f"{base_url}/tiktok/user/{username}"
+            try:
+                response = requests.get(
+                    rss_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
+                        "Accept": "application/rss+xml, application/xml, text/xml, */*"
+                    },
+                    timeout=20
+                )
+
+                if response.status_code != 200:
+                    print(f"[TikTok] RSSHub {response.status_code}: {base_url}")
+                    continue
+
+                parsed = feedparser.parse(response.content)
+                if parsed.entries:
+                    feed = parsed
+                    used_url = rss_url
+                    break
+
+                print(f"[TikTok] RSSに投稿がありません: {base_url}")
+            except Exception as e:
+                print(f"[TikTok] RSSHub接続失敗: {base_url} ({e})")
 
         try:
-            response = requests.get(
-                rss_url,
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=15
-            )
-            response.raise_for_status()
-            feed = feedparser.parse(response.content)
-
-            if not feed.entries:
-                print(f"[TikTok] RSSに投稿がありません: @{username}")
+            if feed is None or not feed.entries:
+                print(f"[TikTokエラー] (@{username}): 利用可能なRSSHubから投稿を取得できませんでした")
                 continue
 
+            print(f"[TikTok] RSS取得成功: @{username} <- {used_url}")
             latest = feed.entries[0]
             item_id = str(latest.get("id") or latest.get("guid") or latest.get("link") or "")
             item_url = latest.get("link") or f"https://www.tiktok.com/@{username}"
