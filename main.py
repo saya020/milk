@@ -6,10 +6,8 @@ import urllib.parse
 import urllib.request
 import requests
 import feedparser
-
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
 DATA_FILE = "last_seen.json"
-
 # YouTubeチャンネル一覧
 YOUTUBE_CHANNELS = [
     {
@@ -38,7 +36,6 @@ YOUTUBE_CHANNELS = [
         "color": 0xFF2800
     }
 ]
-
 # X (Twitter) アカウント一覧
 ACCOUNTS = [
     {
@@ -72,7 +69,6 @@ ACCOUNTS = [
         "twitter": "Y_Jinto_1215"
     }
 ]
-
 # TikTokアカウント一覧
 TIKTOK_ACCOUNTS = [
     {
@@ -86,14 +82,12 @@ TIKTOK_ACCOUNTS = [
         "color": 0xEE1D52
     }
 ]
-
 # RSSHubインスタンス（フォールバック用）
 RSSHUB_INSTANCES = [
     "https://rsshub.ktachibana.party",
     "https://rsshub.moonagic.com",
     "https://hub.slarker.me"
 ]
-
 def load_last_seen():
     if os.path.exists(DATA_FILE):
         try:
@@ -102,29 +96,24 @@ def load_last_seen():
         except Exception:
             return {}
     return {}
-
 def save_last_seen(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
 def send_discord(title, text, url, color, bot_name, image_url=None):
     if not WEBHOOK_URL:
         print("エラー: DISCORD_WEBHOOK_URL が設定されていません。")
         return False
-
     embed = {
         "title": title,
         "description": text[:250] + ("..." if len(text) > 250 else ""),
         "url": url,
         "color": color
     }
-
     if image_url:
         try:
             req_img = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req_img, timeout=5) as res_img:
                 img_data = res_img.read()
-
             embed["image"] = {"url": "attachment://thumbnail.jpg"}
             payload_json = {
                 "username": bot_name,
@@ -138,14 +127,12 @@ def send_discord(title, text, url, color, bot_name, image_url=None):
             return res.status_code in [200, 204]
         except Exception as e:
             print(f"画像添付エラー (通常送信に切替): {e}")
-
     payload = {
         "username": bot_name,
         "embeds": [embed]
     }
     res = requests.post(WEBHOOK_URL, json=payload)
     return res.status_code in [200, 204]
-
 # 1. YouTube巡回
 def check_youtube(last_seen):
     for yt in YOUTUBE_CHANNELS:
@@ -153,17 +140,13 @@ def check_youtube(last_seen):
         key = f"youtube:{ch_id}"
         rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={ch_id}"
         feed = feedparser.parse(rss_url)
-
         if not feed.entries:
             continue
-
         latest = feed.entries[0]
         video_id = latest.yt_videoid
-
         if key not in last_seen:
             last_seen[key] = video_id
             continue
-
         if video_id != last_seen.get(key):
             print(f"[YouTube] 新着 ({yt['name']}): {latest.title}")
             yt_thumb = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
@@ -177,14 +160,12 @@ def check_youtube(last_seen):
             )
             last_seen[key] = video_id
         time.sleep(1)
-
 # 2. TikTok巡回（RSSHub経由）
 def check_tiktok(last_seen):
     for tt in TIKTOK_ACCOUNTS:
         username = tt["username"]
         key = f"tiktok:{username}"
         feed = None
-
         for instance in RSSHUB_INSTANCES:
             rss_url = f"{instance}/tiktok/user/@{username}"
             try:
@@ -198,26 +179,21 @@ def check_tiktok(last_seen):
             except Exception as e:
                 print(f"[TikTok] RSS接続エラー: {instance} / {e}")
                 feed = None
-
         if not feed or not feed.entries:
             print(f"[TikTok] @{username} の取得に全インスタンス失敗")
             continue
-
         latest = feed.entries[0]
         video_url = latest.link
         video_title = latest.title if latest.title else "TikTok新着動画"
-
         # サムネイルをRSSのdescriptionから抽出
         thumb_url = None
         desc = latest.get("description", "")
         thumb_match = re.search(r'poster="([^"]+)"', desc)
         if thumb_match:
             thumb_url = thumb_match.group(1).replace("&amp;", "&")
-
         if key not in last_seen:
             last_seen[key] = video_url
             continue
-
         if video_url != last_seen.get(key):
             print(f"[TikTok] 新着 (@{username}): {video_title[:30]}")
             send_discord(
@@ -230,7 +206,6 @@ def check_tiktok(last_seen):
             )
             last_seen[key] = video_url
         time.sleep(1)
-
 # 3. ツイートの存在確認（oEmbed API）
 def verify_and_get_tweet(username, tweet_id):
     oe_url = f"https://publish.twitter.com/oembed?url=https://x.com/{username}/status/{tweet_id}"
@@ -245,7 +220,6 @@ def verify_and_get_tweet(username, tweet_id):
     except Exception:
         pass
     return None, None
-
 # 4. Yahoo Realtime Search でツイート検索
 def get_latest_tweet_smart(username):
     candidates = []
@@ -265,7 +239,6 @@ def get_latest_tweet_smart(username):
                     candidates.append((int(tid_str), e.get("displayText", ""), tid_str))
     except Exception:
         pass
-
     q2 = urllib.parse.quote("@" + username)
     url2 = f"https://search.yahoo.co.jp/realtime/search?p={q2}"
     try:
@@ -281,40 +254,31 @@ def get_latest_tweet_smart(username):
                 candidates.append((int(target_id), None, target_id))
     except Exception:
         pass
-
     if not candidates:
         return None, None
-
     candidates.sort(key=lambda x: x[0], reverse=True)
-
     for _, text, tid_str in candidates:
         if text:
             return tid_str, text
         valid_id, valid_text = verify_and_get_tweet(username, tid_str)
         if valid_id:
             return valid_id, valid_text
-
     return None, None
-
 # 5. X (Twitter) 巡回
 def check_twitter(last_seen):
     for member in ACCOUNTS:
         username = member.get("twitter")
         if not username:
             continue
-
         key = f"twitter:{username}"
         try:
             tweet_id, tweet_text = get_latest_tweet_smart(username)
             if not tweet_id:
                 continue
-
             tweet_url = f"https://x.com/{username}/status/{tweet_id}"
-
             if key not in last_seen:
                 last_seen[key] = tweet_id
                 continue
-
             if tweet_id != last_seen.get(key):
                 print(f"[新着検知] ({member['name']}): {tweet_text[:20]}")
                 send_discord(
@@ -328,13 +292,11 @@ def check_twitter(last_seen):
         except Exception as e:
             print(f"[エラー] ({username}): {e}")
         time.sleep(1.5)
-
 def main():
     last_seen = load_last_seen()
     check_youtube(last_seen)
     check_tiktok(last_seen)
     check_twitter(last_seen)
     save_last_seen(last_seen)
-
 if __name__ == "__main__":
     main()
