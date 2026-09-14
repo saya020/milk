@@ -64,10 +64,16 @@ ACCOUNTS = [
         "twitter": "jyu_ta_ro"
     },
     {
+    "name": "山中 柔太朗 info",
+    "color": 0xE8ECEF,
+    "twitter": "info_jyutaro"
+    },
+    {
         "name": "吉田 仁人",
         "color": 0xFFD700,
         "twitter": "Y_Jinto_1215"
     }
+    
 ]
 # TikTokアカウント一覧
 TIKTOK_ACCOUNTS = [
