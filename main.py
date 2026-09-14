@@ -59,6 +59,11 @@ ACCOUNTS = [
         "twitter": "sono_shunta_"
     },
     {
+        "name": "曽野 舜太 info",
+        "color": 0xFF2800,
+        "twitter": "sonoshunta0503"
+    },
+    {
         "name": "山中 柔太朗",
         "color": 0xE8ECEF,
         "twitter": "jyu_ta_ro"
