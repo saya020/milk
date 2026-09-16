@@ -54,11 +54,6 @@ ACCOUNTS = [
         "twitter": "shiozaki__info"
     },
     {
-        "name": "曽野 舜太",
-        "color": 0xFF2800,
-        "twitter": "sono_shunta_"
-    },
-    {
         "name": "曽野 舜太 info",
         "color": 0xFF2800,
         "twitter": "sonoshunta0503"
